@@ -1,4 +1,4 @@
-# DayZ Server Manager for Linux — Quick & Friendly Guide 🚀
+# DayZ Server Manager for Linux 🚀
 
 > This project provides a small bash script (`dayzserver.sh`) to manage a DayZ server on Linux: install SteamCMD, download/update DayZ server files and Workshop mods, perform backups, and help with automatic restarts.
 
