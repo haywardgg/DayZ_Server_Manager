@@ -80,6 +80,21 @@ if [ "$steamlogin" = "CHANGEME" ]; then
 	exit 1
 fi
 
+# Centralized Path Variables
+STEAMCMD_DIR="${HOME}/steamcmd"
+SERVERFILES_DIR="${HOME}/serverfiles"
+SERVERPROFILE_DIR="${HOME}/serverprofile"
+BACKUP_DIR="${HOME}/backup"
+LOCK_FILE="${HOME}/.dayzlockfile"
+LOCK_UPDATE_FILE="${HOME}/.dayzlockupdate"
+MOD_TIMESTAMPS_FILE="${HOME}/mod_timestamps.json"
+WORKSHOP_CFG_FILE="${HOME}/workshop.cfg"
+WORKSHOP_FOLDER="${SERVERFILES_DIR}/steamapps/workshop/content/221100"
+MPMISSIONS_DIR="${SERVERFILES_DIR}/mpmissions"
+KEYS_DIR="${SERVERFILES_DIR}/keys"
+STEAM_CACHE_DIR="${HOME}/Steam/appcache"
+DAYZ_SERVER_BIN="${SERVERFILES_DIR}/DayZServer"
+
 fn_checkroot_dayz(){
 	if [ "$(whoami)" == "root" ]; then
 	  printf "[ ${red}FAIL${default} ] ${yellow}Do NOT run this script as root!\n"
@@ -136,11 +151,25 @@ fn_status_dayz(){
 	dayzstatus=$(tmux list-sessions -F $(whoami)-tmux 2> /dev/null | grep -Ecx $(whoami)-tmux)
 }
 
+fn_get_mission_folder(){
+	grep template "${SERVERFILES_DIR}/serverDZ.cfg" | tr '[:blank:]"' ' ' | tr -s ' ' | cut -d \  -f3
+}
+
+fn_get_mod_name(){
+	local mod_id=$1
+	local mod_meta_file="${WORKSHOP_FOLDER}/$mod_id/meta.cpp"
+	
+	if [ -f "$mod_meta_file" ]; then
+		cut -d '"' -f 2 <<< $(grep name "$mod_meta_file")
+	else
+		echo "Unknown"
+	fi
+}
+
 fn_clear_logs(){
 	# Delete *.RPT, *.log, and *.mdmp files from the profiles directory
-	profiles_dir="${HOME}/serverprofile" # Update this path if necessary
-	if [ -d "${profiles_dir}" ]; then
-		find "${profiles_dir}" -type f \( -name "*.RPT" -o -name "*.log" -o -name "*.mdmp" \) -delete
+	if [ -d "${SERVERPROFILE_DIR}" ]; then
+		find "${SERVERPROFILE_DIR}" -type f \( -name "*.RPT" -o -name "*.log" -o -name "*.mdmp" \) -delete
 		printf "[ ${green}DayZ${default} ] Cleared old .RPT, .log, and .mdmp files from profiles directory.\n"
 	fi
 }
@@ -159,11 +188,11 @@ fn_start_dayz(){
 		printf "[ ${green}DayZ${default} ] Starting server...\n"
 		sleep 0.5
 		sleep 0.5
-		cd ${HOME}/serverfiles
+		cd "${SERVERFILES_DIR}"
 		tmux new-session -d -x 23 -y 80 -s $(whoami)-tmux ./DayZServer $dayzparameter -mod="$workshop" -servermod="$servermods"
 		sleep 1
 		cd ${HOME}
-		date > ${HOME}/.dayzlockfile
+		date > "${LOCK_FILE}"
 	fi
 }
 
@@ -176,7 +205,7 @@ fn_stop_dayz(){
 			fn_status_dayz
 			if [ "${dayzstatus}" == "0" ]; then
 				printf "\r[ ${green}OK${default} ] Stopping Server graceful.\n"
-				rm -f ${HOME}/.dayzlockfile
+				rm -f "${LOCK_FILE}"
 				break
 			fi
 			printf "\r[ ${magenta}...${default} ] Stopping Server graceful: ${seconds} seconds"
@@ -187,7 +216,7 @@ fn_stop_dayz(){
 		if [ "${dayzstatus}" != "0" ]; then
 			printf "\n[ ${red}FAIL${default} ] Stopping Server graceful failed. Stop Signal.\n"
 			sleep 2
-			rm -f ${HOME}/.dayzlockfile
+			rm -f "${LOCK_FILE}"
 			tmux kill-session -t $(whoami)-tmux
 			#killall -u $(whoami)
 		fi
@@ -203,11 +232,11 @@ fn_restart_dayz(){
 }
 
 fn_monitor_dayz(){
-	if [ ! -f ".dayzlockupdate" ]; then
+	if [ ! -f "${LOCK_UPDATE_FILE}" ]; then
 		fn_status_dayz
-		if [ "${dayzstatus}" == "0" ] && [ -f "${HOME}/.dayzlockfile" ]; then
+		if [ "${dayzstatus}" == "0" ] && [ -f "${LOCK_FILE}" ]; then
 			fn_restart_dayz
-		elif [ "${dayzstatus}" != "0" ] && [ -f "${HOME}/.dayzlockfile" ]; then
+		elif [ "${dayzstatus}" != "0" ] && [ -f "${LOCK_FILE}" ]; then
 			printf "[ ${lightblue}INFO${default} ] Server should be online!\n"
 		else
 			printf "[ ${yellow}INFO${default} ] Don't use monitor to start the server. Use the start command.\n"
@@ -233,16 +262,16 @@ fn_console_dayz(){
 
 
 fn_install_dayz(){
-	if [ ! -f "${HOME}/steamcmd/steamcmd.sh" ]; then
-		mkdir ${HOME}/steamcmd &> /dev/null
-		curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxf - -C steamcmd
+	if [ ! -f "${STEAMCMD_DIR}/steamcmd.sh" ]; then
+		mkdir -p "${STEAMCMD_DIR}" &> /dev/null
+		curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxf - -C "${STEAMCMD_DIR}"
 		printf "[ ${yellow}STEAM${default} ] Steamcmd installed\n"
 	else
 		printf "[ ${lightblue}STEAM${default} ] Steamcmd already installed\n"
 	fi
-	if [ ! -f "${HOME}/serverfiles/DayZServer" ]; then
-		mkdir ${HOME}/serverfiles &> /dev/null
-		mkdir ${HOME}/serverprofile &> /dev/null
+	if [ ! -f "${DAYZ_SERVER_BIN}" ]; then
+		mkdir -p "${SERVERFILES_DIR}" &> /dev/null
+		mkdir -p "${SERVERPROFILE_DIR}" &> /dev/null
 		printf "[ ${yellow}DayZ${default} ] Downloading DayZ Server-Files!\n"
 		fn_runvalidate_dayz
 	else
@@ -252,21 +281,21 @@ fn_install_dayz(){
 }
 
 fn_runupdate_dayz(){
-	${HOME}/steamcmd/steamcmd.sh +force_install_dir ${HOME}/serverfiles +login "${steamlogin}"  +app_update "${appid}" +quit
+	"${STEAMCMD_DIR}/steamcmd.sh" +force_install_dir "${SERVERFILES_DIR}" +login "${steamlogin}" +app_update "${appid}" +quit
 }
 
 fn_update_dayz(){
-	appmanifestfile=${HOME}/serverfiles/steamapps/appmanifest_"${appid}".acf
+	appmanifestfile="${SERVERFILES_DIR}/steamapps/appmanifest_${appid}.acf"
 	printf "[ ... ] Checking for update: SteamCMD"
 	# gets currentbuild
 	currentbuild=$(grep buildid "${appmanifestfile}" | tr '[:blank:]"' ' ' | tr -s ' ' | cut -d \  -f3)
 	# Removes appinfo.vdf as a fix for not always getting up to date version info from SteamCMD
-	if [ -f "${HOME}/Steam/appcache/appinfo.vdf" ]; then
-		rm -f "${HOME}/Steam/appcache/appinfo.vdf"
+	if [ -f "${STEAM_CACHE_DIR}/appinfo.vdf" ]; then
+		rm -f "${STEAM_CACHE_DIR}/appinfo.vdf"
 		sleep 1
 	fi
 	# check for new build
-	availablebuild=$(${HOME}/steamcmd/steamcmd.sh +login "${steamlogin}" +app_info_update 1 +app_info_print "${appid}" +app_info_print "${appid}" +quit | sed -n '/branch/,$p' | grep -m 1 buildid | tr -cd '[:digit:]')
+	availablebuild=$("${STEAMCMD_DIR}/steamcmd.sh" +login "${steamlogin}" +app_info_update 1 +app_info_print "${appid}" +app_info_print "${appid}" +quit | sed -n '/branch/,$p' | grep -m 1 buildid | tr -cd '[:digit:]')
 	if [ -z "${availablebuild}" ]; then
 		printf "\r[ ${red}FAIL${default} ] Checking for update: SteamCMD\n"
 		sleep 0.5
@@ -285,7 +314,7 @@ fn_update_dayz(){
 		printf "\tAvailable build: ${green}${availablebuild}${default}\n"
 		printf "\thttps://steamdb.info/app/${appid}/\n"
 		sleep 0.5
-		date > ${HOME}/.dayzlockupdate
+		date > "${LOCK_UPDATE_FILE}"
 		printf "\nApplying update"
 		for seconds in {1..3}; do
 			printf "."
@@ -297,13 +326,13 @@ fn_update_dayz(){
 		if [ "${dayzstatus}" == "0" ]; then
 			fn_runupdate_dayz
 			fn_workshop_mods
-			rm -f ${HOME}/.dayzlockupdate
+			rm -f "${LOCK_UPDATE_FILE}"
 		else
 			fn_stop_dayz
 			fn_runupdate_dayz
 			fn_workshop_mods
 			fn_start_dayz
-			rm -f ${HOME}/.dayzlockupdate
+			rm -f "${LOCK_UPDATE_FILE}"
 		fi
 	else
 		printf "\r[ ${green}OK${default} ] Checking for update: SteamCMD: No update available\n"
@@ -315,33 +344,32 @@ fn_update_dayz(){
 }
 
 fn_runvalidate_dayz(){
-	${HOME}/steamcmd/steamcmd.sh +force_install_dir ${HOME}/serverfiles +login "${steamlogin}" +app_update "${appid}" validate +quit
+	"${STEAMCMD_DIR}/steamcmd.sh" +force_install_dir "${SERVERFILES_DIR}" +login "${steamlogin}" +app_update "${appid}" validate +quit
 }
 
 fn_validate_dayz(){
 	if [ "${dayzstatus}" == "0" ]; then
 		fn_runvalidate_dayz
 	else
-		date > ${HOME}/.dayzlockupdate
+		date > "${LOCK_UPDATE_FILE}"
 		fn_stop_dayz
 		fn_runvalidate_dayz
 		fn_workshop_mods
-		rm -f ${HOME}/.dayzlockupdate
+		rm -f "${LOCK_UPDATE_FILE}"
 		fn_start_dayz
 	fi
 }
 
 fn_workshop_mods(){
     declare -a workshopID
-    workshopfolder="${HOME}/serverfiles/steamapps/workshop/content/221100"
     workshoplist=""
-    timestamp_file="${HOME}/mod_timestamps.json"
-    workshop_cfg="${HOME}/workshop.cfg"
+    timestamp_file="${MOD_TIMESTAMPS_FILE}"
+    workshop_cfg="${WORKSHOP_CFG_FILE}"
     
     # If .workshop.cfg doesn't exist, create it.
     if [ ! -f "$workshop_cfg" ]; then
-        touch $workshop_cfg
-	chmod 600 ${HOME}/workshop.cfg
+        touch "$workshop_cfg"
+	chmod 600 "$workshop_cfg"
     fi
 
     # Read the updated workshop.cfg into workshopID array
@@ -362,19 +390,19 @@ fn_workshop_mods(){
     done
 
     # Download mods
-    ${HOME}/steamcmd/steamcmd.sh +force_install_dir ${HOME}/serverfiles +login "${steamlogin}" ${workshoplist} +quit
+    "${STEAMCMD_DIR}/steamcmd.sh" +force_install_dir "${SERVERFILES_DIR}" +login "${steamlogin}" ${workshoplist} +quit
 
     # Link mods and check for updates
     for i in "${workshopID[@]}"; do
         mod_id=$(echo "$i" | awk '{print $1}')
         mod_name=$(echo "$i" | cut -d' ' -f2-)
 
-        if [[ "$mod_id" =~ ^[0-9]+$ ]] && [ -d "${workshopfolder}/$mod_id" ]; then
-            mod_meta_file="${workshopfolder}/$mod_id/meta.cpp"
+        if [[ "$mod_id" =~ ^[0-9]+$ ]] && [ -d "${WORKSHOP_FOLDER}/$mod_id" ]; then
+            mod_meta_file="${WORKSHOP_FOLDER}/$mod_id/meta.cpp"
             
             # Ensure mod_name is accurate
             if [ -f "$mod_meta_file" ]; then
-                actual_mod_name=$(cut -d '"' -f 2 <<< $(grep name "$mod_meta_file"))
+                actual_mod_name=$(fn_get_mod_name "$mod_id")
                 mod_name=${actual_mod_name:-$mod_name}
             fi
 
@@ -382,13 +410,13 @@ fn_workshop_mods(){
             mod_name=$(echo "${mod_name}" | tr '[:upper:]' '[:lower:]')
 
             # Rename main mod folder to lowercase if necessary
-            if [ ! -d "${HOME}/serverfiles/@${mod_name}" ]; then
-                mv "${HOME}/serverfiles/@$(basename "${workshopfolder}/$mod_id")" "${HOME}/serverfiles/@${mod_name}" 2>/dev/null
+            if [ ! -d "${SERVERFILES_DIR}/@${mod_name}" ]; then
+                mv "${SERVERFILES_DIR}/@$(basename "${WORKSHOP_FOLDER}/$mod_id")" "${SERVERFILES_DIR}/@${mod_name}" 2>/dev/null
             fi
 
             # Create a symlink if it doesn't already exist
-            if [ ! -d "${HOME}/serverfiles/@${mod_name}" ]; then
-                ln -s ${workshopfolder}/$mod_id "${HOME}/serverfiles/@${mod_name}" &> /dev/null
+            if [ ! -d "${SERVERFILES_DIR}/@${mod_name}" ]; then
+                ln -s "${WORKSHOP_FOLDER}/$mod_id" "${SERVERFILES_DIR}/@${mod_name}" &> /dev/null
             fi
 
             # Check if mod has been updated
@@ -422,12 +450,7 @@ fn_workshop_mods(){
 
         # Get mod name from meta.cpp if not present
         if [[ -z "$mod_name" || "$mod_name" == "$mod_id" ]]; then
-            mod_meta_file="${workshopfolder}/$mod_id/meta.cpp"
-            if [ -f "$mod_meta_file" ]; then
-                mod_name=$(cut -d '"' -f 2 <<< $(grep name "$mod_meta_file"))
-            else
-                mod_name="Unknown"
-            fi
+            mod_name=$(fn_get_mod_name "$mod_id")
         fi
 
 	# Save the updated line
@@ -441,11 +464,11 @@ fn_workshop_mods(){
     fi
 
  	# Copy key files
-	if ls ${HOME}/serverfiles/@* 1> /dev/null 2>&1; then
+	if ls "${SERVERFILES_DIR}/@"* 1> /dev/null 2>&1; then
 	    printf "\n[ ${green}DayZ${default} ] Copying Mod Keys to Server Keys folder...\n"
-	    for keydir in ${HOME}/serverfiles/@*/[Kk]eys/ ${HOME}/serverfiles/@*/[Kk]ey/; do
+	    for keydir in "${SERVERFILES_DIR}/@"*/[Kk]eys/ "${SERVERFILES_DIR}/@"*/[Kk]ey/; do
 	        if [ -d "$keydir" ]; then
-	            cp -vu "$keydir"* "${HOME}/serverfiles/keys/" > /dev/null 2>&1
+	            cp -vu "$keydir"* "${KEYS_DIR}/" > /dev/null 2>&1
 	        fi
 	    done
 	fi
@@ -456,23 +479,23 @@ fn_backup_dayz(){
     fn_status_dayz
 
     # Ensure backup directory exists
-    if [ ! -d "${HOME}/backup" ]; then
-        mkdir -p ${HOME}/backup &> /dev/null
+    if [ ! -d "${BACKUP_DIR}" ]; then
+        mkdir -p "${BACKUP_DIR}" &> /dev/null
     fi
 
     # Get the mission folder name
-    missionfolder=$(grep template ${HOME}/serverfiles/serverDZ.cfg | tr '[:blank:]"' ' ' | tr -s ' ' | cut -d \  -f3)
+    missionfolder=$(fn_get_mission_folder)
 
     # Format for backup files: missionfolder-Month-Day-Hour-Minute.tar
-    backup_file="${HOME}/backup/${missionfolder}-$(date +%m-%d-%H-%M).tar"
-    profile_backup_file="${HOME}/backup/serverprofile-$(date +%m-%d-%H-%M).tar"
+    backup_file="${BACKUP_DIR}/${missionfolder}-$(date +%m-%d-%H-%M).tar"
+    profile_backup_file="${BACKUP_DIR}/serverprofile-$(date +%m-%d-%H-%M).tar"
 
     # Create the backup of the mission folder
     if [ "${dayzstatus}" == "0" ]; then
         printf "[ ${green}DayZ${default} ] Creating backup of Missionfolder: ${cyan}${missionfolder}${default}\n"
-        tar -cf "$backup_file" -C "${HOME}/serverfiles/mpmissions" "${missionfolder}"
+        tar -cf "$backup_file" -C "${MPMISSIONS_DIR}" "${missionfolder}"
 	    # Backup the serverprofile directory while excluding .log and .RPT files
-	    printf "[ ${green}DayZ${default} ] Creating backup of Serverprofile directory: ${cyan}${HOME}/serverprofile${default}\n"
+	    printf "[ ${green}DayZ${default} ] Creating backup of Serverprofile directory: ${cyan}${SERVERPROFILE_DIR}${default}\n"
 	    tar --exclude='*.log' --exclude='*.RPT' -cf "$profile_backup_file" -C "${HOME}" "serverprofile"      	
     else
         fn_stop_dayz
@@ -481,13 +504,13 @@ fn_backup_dayz(){
 
     # Delete backups older than 2 days
     printf "[ ${green}DayZ${default} ] Cleaning up backups older than 2 days...\n"
-    find "${HOME}/backup" -type f -name "${missionfolder}-*.tar" -mtime +2 -exec rm -f {} \;
-    find "${HOME}/backup" -type f -name "serverprofile-*.tar" -mtime +2 -exec rm -f {} \;
+    find "${BACKUP_DIR}" -type f -name "${missionfolder}-*.tar" -mtime +2 -exec rm -f {} \;
+    find "${BACKUP_DIR}" -type f -name "serverprofile-*.tar" -mtime +2 -exec rm -f {} \;
 }
 
 
 fn_wipe_dayz(){
-	missionfolder=$(grep template ${HOME}/serverfiles/serverDZ.cfg | tr '[:blank:]"' ' ' | tr -s ' ' | cut -d \  -f3)
+	missionfolder=$(fn_get_mission_folder)
 	printf "[ ${red}WARNING${default} ] Wiping Players and reset Central Economy state from...\n"
 	for seconds in {9..0}; do
 		printf "\r\t    Selected Mission: ${cyan}${missionfolder}${default} in ${red}"${seconds}"${default} seconds."
@@ -495,13 +518,13 @@ fn_wipe_dayz(){
 	done
 	printf "\n"
 	if [ "${dayzstatus}" == "0" ]; then
-		rm -f ${HOME}/serverfiles/mpmissions/${missionfolder}/storage_1/players.db
-		rm -f ${HOME}/serverfiles/mpmissions/${missionfolder}/storage_1/data/*
+		rm -f "${MPMISSIONS_DIR}/${missionfolder}/storage_1/players.db"
+		rm -f "${MPMISSIONS_DIR}/${missionfolder}/storage_1/data/"*
 		printf "[ ${yellow}DayZ${default} ] Player.db and Storage-data wiped!\n"
 	else
 		fn_stop_dayz
-		rm -f ${HOME}/serverfiles/mpmissions/${missionfolder}/storage_1/players.db
-		rm -f ${HOME}/serverfiles/mpmissions/${missionfolder}/storage_1/data/*
+		rm -f "${MPMISSIONS_DIR}/${missionfolder}/storage_1/players.db"
+		rm -f "${MPMISSIONS_DIR}/${missionfolder}/storage_1/data/"*
 		printf "[ ${yellow}DayZ${default} ] Player.db and Storage-data wiped!\n"
 		sleep 0.5
 		fn_start_dayz
@@ -557,11 +580,11 @@ check_dependencies
 fn_checkscreen
 
 getopt=$1
-if [ ! -f "${HOME}/steamcmd/steamcmd.sh" ] || [ ! -f "${HOME}/serverfiles/DayZServer" ] && [ "${getopt}" != "cfg" ]; then
+if [ ! -f "${STEAMCMD_DIR}/steamcmd.sh" ] || [ ! -f "${DAYZ_SERVER_BIN}" ] && [ "${getopt}" != "cfg" ]; then
 	printf "[ ${yellow}INFO${default} ] No installed steamcmd and/or serverfiles found!\n"
-	chmod u+x ${HOME}/dayzserver
+	chmod u+x "${HOME}/dayzserver"
 	fn_install_dayz
-	if [ -f "${HOME}/steamcmd/steamcmd.sh" ] && [ -f "${HOME}/serverfiles/DayZServer" ]; then
+	if [ -f "${STEAMCMD_DIR}/steamcmd.sh" ] && [ -f "${DAYZ_SERVER_BIN}" ]; then
 		fn_opt_usage
 	fi
 	exit
