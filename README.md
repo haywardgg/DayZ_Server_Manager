@@ -123,13 +123,4 @@ Recommended crontab for the DayZ user (`crontab -e` as the dayz user):
 
 ---
 
-## ❤️ Need help or want improvements?
-- I can help modernize the script further, add systemd service support, or produce an install guide with screenshots. Ask me to:
-
-- convert cron-based monitoring to a `systemd` service
-- add safer locking / logging
-- produce a step-by-step beginner tutorial with screenshots
-
----
-
 Made with ❤️ — enjoy running your DayZ server!
